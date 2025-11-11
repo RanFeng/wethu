@@ -19,10 +19,13 @@ export function useRoomConnection(session: RoomSession) {
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws/rooms/${session.roomId}?token=${encodeURIComponent(session.token)}`;
+      console.log('Connecting to WebSocket:', wsUrl);
+      console.log('Session info:', { roomId: session.roomId, userId: session.userId, token: session.token.substring(0, 8) + '...' });
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
       socket.onopen = () => {
+        console.log('Connecting WebSocket success!', wsUrl);
         if (!isMounted) {
           socket.close();
           return;
@@ -78,20 +81,28 @@ export function useRoomConnection(session: RoomSession) {
         if (!isMounted) return;
         console.error('WebSocket error:', error);
         setStatus('error');
-        setError('WebSocket 连接异常');
+        // 提供更详细的错误信息
+        setError(`WebSocket 连接异常: ${error instanceof Error ? error.message : String(error)}`);
       };
 
       socket.onclose = (event) => {
         if (!isMounted) return;
         setStatus('closed');
-        // Only attempt to reconnect if it wasn't a clean close and component is still mounted
-        if (event.code !== 1000 && isMounted) {
-          reconnectTimeout = setTimeout(() => {
-            if (isMounted) {
-              setStatus('connecting');
-              connect();
-            }
-          }, 3000);
+        console.log(`WebSocket disconnected: code=${event.code}, reason=${event.reason}, wasClean=${event.wasClean}`);
+        
+        // 如果是401错误，显示未授权错误信息
+        if (event.code === 1008) {
+          setError('连接被拒绝: 未授权访问，请检查token是否有效');
+        } else if (event.code !== 1000) {
+          setError(`连接意外断开: 错误代码 ${event.code}`);
+          // Only attempt to reconnect if it wasn't a clean close and component is still mounted
+          // reconnectTimeout = setTimeout(() => {
+          //   if (isMounted) {
+          //     console.log('Attempting to reconnect...');
+          //     setStatus('connecting');
+          //     connect();
+          //   }
+          // }, 3000);
         }
       };
     };

@@ -65,6 +65,7 @@ Desktop.ini
 *.log
 logs/
 *.log.*
+run_log/
 
 # Temporary files
 *.tmp

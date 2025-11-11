@@ -23,6 +23,7 @@ function Lobby({ onSessionReady }: LobbyProps) {
     setIsSubmitting(true);
     try {
       const session = await createRoom(displayName.trim(), videoUrl.trim());
+      console.log("create room", session)
       onSessionReady(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建房间失败');

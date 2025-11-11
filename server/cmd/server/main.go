@@ -3,47 +3,47 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"wethu/internal/httpapi"
+	"github.com/cloudwego/hertz/pkg/app/server"
+
 	"wethu/internal/rooms"
+	"wethu/internal/hertzapi"
 )
 
 func main() {
+	// 创建房间管理器
 	roomManager := rooms.NewManager()
-	api := httpapi.NewServer(roomManager)
-
-	addr := ":8080"
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      api.Router(),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-	}
-
+	
+	// 创建Hertz服务器
+	serverConfig := server.Default(server.WithHostPorts(":8080"))
+	
+	// 初始化API路由
+	router := hertzapi.NewRouter(serverConfig, roomManager)
+	
+	// 启动服务器
 	go func() {
-		log.Printf("server listening on %s\n", addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("failed to start server: %v", err)
-		}
+		log.Println("Starting Hertz server on :8080")
+	// 启动服务器
+	router.Spin()
 	}()
 
+	// 优雅关闭
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	<-stop
-	log.Println("shutting down server...")
+	log.Println("Shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("graceful shutdown failed: %v\n", err)
+	if err := router.Shutdown(ctx); err != nil {
+		log.Printf("Graceful shutdown failed: %v\n", err)
 	}
 
-	log.Println("server stopped")
+	log.Println("Server stopped")
 }

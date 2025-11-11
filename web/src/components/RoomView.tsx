@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useRoomConnection } from '@/hooks/useRoomConnection';
 import { RoomSession } from '@/types/session';
 import VideoPlayer from '@/components/VideoPlayer';

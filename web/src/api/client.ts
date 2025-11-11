@@ -39,7 +39,7 @@ async function request<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
 
 export async function createRoom(displayName: string, videoUrl: string): Promise<RoomSession> {
   const payload: CreateRoomPayload = { displayName, videoUrl };
-  const data = await request<SessionResponse>(`${API_BASE}/rooms`, {
+  const data = await request<SessionResponse>(`${API_BASE}/rooms/create`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });
@@ -56,7 +56,7 @@ export async function createRoom(displayName: string, videoUrl: string): Promise
 
 export async function joinRoom(roomId: string, displayName: string): Promise<RoomSession> {
   const payload: JoinRoomPayload = { displayName };
-  const data = await request<SessionResponse>(`${API_BASE}/rooms/${roomId}/join`, {
+  const data = await request<SessionResponse>(`${API_BASE}/rooms/join/${roomId}`, {
     method: 'POST',
     body: JSON.stringify(payload)
   });

@@ -1,10 +1,12 @@
 package rooms
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/RanFeng/ilog"
 	"sync"
 	"time"
 
@@ -96,13 +98,15 @@ func (m *Manager) GetState(roomID string) (protocol.RoomState, error) {
 }
 
 func (m *Manager) LookupParticipant(roomID, token string) (*Room, *Participant, error) {
+	ctx := context.Background()
 	m.mu.RLock()
+	ilog.EventInfo(ctx, "Looking up participant", "roomID", roomID, "token", token, "m.rooms", m.rooms)
 	room, ok := m.rooms[roomID]
 	m.mu.RUnlock()
 	if !ok {
 		return nil, nil, ErrRoomNotFound
 	}
-	participant, err := room.FindByToken(token)
+	participant, err := room.FindByToken(ctx, token)
 	if err != nil {
 		return nil, nil, err
 	}
