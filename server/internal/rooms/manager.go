@@ -2,11 +2,10 @@ package rooms
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/RanFeng/ilog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -114,12 +113,13 @@ func (m *Manager) LookupParticipant(roomID, token string) (*Room, *Participant, 
 }
 
 func generateID(prefix string) string {
-	const size = 6
-	buf := make([]byte, size)
-	if _, err := rand.Read(buf); err != nil {
-		panic(fmt.Errorf("unable to read random bytes: %w", err))
-	}
-	return fmt.Sprintf("%s_%s", prefix, hex.EncodeToString(buf))
+	//const size = 6
+	//buf := make([]byte, size)
+	//if _, err := rand.Read(buf); err != nil {
+	//	panic(fmt.Errorf("unable to read random bytes: %w", err))
+	//}
+	r := rand.Intn(900) + 10
+	return fmt.Sprintf("%s_%d", prefix, r)
 }
 
 func (m *Manager) CleanupRoom(room *Room) {

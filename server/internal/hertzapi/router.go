@@ -103,6 +103,8 @@ func handleJoinRoom(roomManager *rooms.Manager) app.HandlerFunc {
 			return
 		}
 
+		ilog.EventInfo(c, "JoinRoom_start", "request", payload)
+
 		session, err := roomManager.JoinRoom(roomID, payload.DisplayName)
 		if err != nil {
 			if err == rooms.ErrRoomNotFound {
@@ -112,6 +114,7 @@ func handleJoinRoom(roomManager *rooms.Manager) app.HandlerFunc {
 			respondError(ctx, consts.StatusInternalServerError, "join_failed", err.Error())
 			return
 		}
+		ilog.EventInfo(c, "JoinRoom_end", "session", session)
 
 		ctx.JSON(consts.StatusOK, session)
 	}

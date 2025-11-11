@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RanFeng/ilog"
+
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/websocket"
 
@@ -36,78 +38,90 @@ func NewHandler(manager *rooms.Manager) *Handler {
 
 // HandleWebSocket 处理WebSocket连接
 func (h *Handler) HandleWebSocket(c context.Context, ctx *app.RequestContext) {
-	// 使用context处理请求超时
-	ctxWithTimeout, cancel := context.WithTimeout(c, 30*time.Second)
-	defer cancel()
 
 	roomID := ctx.Param("roomId")
 	token := ctx.Query("token")
-	
+
 	if token == "" {
 		log.Printf("WebSocket: missing token for room %s", roomID)
 		ctx.String(401, "missing token")
 		return
 	}
-	
+
+	ilog.EventInfo(c, "WebSocket_start", "roomID", roomID, "token", token)
+
 	// 查找房间和参与者
 	room, participant, err := h.manager.LookupParticipant(roomID, token)
 	if err != nil {
-		log.Printf("WebSocket: lookup failed for room %s: %v", roomID, err)
+		ilog.EventError(c, err, "WebSocket: lookup failed", "room", roomID)
 		ctx.String(401, err.Error())
 		return
 	}
-	
+
 	// 升级HTTP连接为WebSocket连接
 	err = h.upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
+		// 使用带长时间超时的上下文处理WebSocket连接（24小时）
+		//ctxWithTimeout, cancel := context.WithTimeout(c, 24*time.Hour)
+		//defer cancel()
+
+		ilog.EventInfo(c, "WebSocket_upgrade", "room", roomID, "token", token)
+
 		// 设置读取超时
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		
+		//err = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		//if err != nil {
+		//	ilog.EventError(c, err, "WebSocket: set deadline failed", "room", roomID)
+		//}
+
 		// 绑定连接到参与者
 		participant.BindConnection(conn)
-		
+
 		// 启动发送循环
 		sendDone := make(chan struct{})
 		go func() {
 			participant.SendLoop()
 			close(sendDone)
 		}()
-		
+
 		// 发送房间状态
 		participant.Send(protocol.Envelope{
 			Kind: "ROOM_STATE",
 			Data: protocol.RoomStatePayload{Room: room.StateSnapshot()},
 		})
-		
+
 		// 启动接收消息循环
 		readDone := make(chan struct{})
 		go func() {
-			h.readLoop(ctxWithTimeout, room, participant, conn)
+			h.readLoop(c, room, participant, conn)
 			close(readDone)
 		}()
-		
+
 		// 等待任一goroutine完成
 		waitForCompletion := make(chan struct{})
 		go func() {
 			select {
 			case <-readDone:
+				ilog.EventInfo(c, "WebSocket_read_done", "room", roomID, "token", token)
 			case <-sendDone:
-			case <-ctxWithTimeout.Done():
+				ilog.EventInfo(c, "WebSocket_send_done", "room", roomID, "token", token)
+				//case <-ctxWithTimeout.Done():
+				//	ilog.EventInfo(c, "WebSocket_timeout_done", "room", roomID, "token", token)
 			}
 			close(waitForCompletion)
 		}()
-		
+
 		select {
 		case <-waitForCompletion:
 			// 确保连接关闭
 			conn.Close()
 			// 连接关闭后清理
-			room.DetachParticipant(participant.ID)
-			h.manager.CleanupRoom(room)
+			ilog.EventInfo(c, "WebSocket_close", "room", roomID, "token", token)
+			//room.DetachParticipant(participant.ID)
+			//h.manager.CleanupRoom(room)
 		}
 	})
-	
+
 	if err != nil {
-		log.Printf("WebSocket: upgrade failed for room %s: %v", roomID, err)
+		ilog.EventError(c, err, "WebSocket: upgrade failed", "room", roomID)
 		return
 	}
 }
@@ -115,7 +129,7 @@ func (h *Handler) HandleWebSocket(c context.Context, ctx *app.RequestContext) {
 // readLoop 读取WebSocket消息循环
 func (h *Handler) readLoop(ctx context.Context, room *rooms.Room, participant *rooms.Participant, conn *websocket.Conn) {
 	defer participant.Close()
-	
+
 	// 预分配消息缓冲区以减少内存分配
 	messagePool := sync.Pool{
 		New: func() interface{} {
@@ -123,36 +137,34 @@ func (h *Handler) readLoop(ctx context.Context, room *rooms.Room, participant *r
 			return &b
 		},
 	}
-	
+
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			// 读取消息
-			msgType, data, err := conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-					log.Printf("WebSocket: read error: %v", err)
-				}
-				break
+		//ilog.EventInfo(ctx, "read_loop_default")
+		// 读取消息
+		msgType, data, err := conn.ReadMessage()
+		if err != nil {
+			ilog.EventError(ctx, err, "conn: read message failed", "room", room.ID)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
+				log.Printf("WebSocket: read error: %v", err)
 			}
-			
-			// 只处理文本消息
-			if msgType != websocket.TextMessage {
+			break
+		}
+
+		// 只处理文本消息
+		if msgType != websocket.TextMessage {
+			continue
+		}
+
+		// 使用缓冲区处理消息以提高性能
+		var inbound protocol.InboundEnvelope
+		if len(data) > 8192 {
+			// 对于大消息，直接解析
+			if err := json.Unmarshal(data, &inbound); err != nil {
+				log.Printf("WebSocket: unmarshal large message error: %v", err)
 				continue
 			}
-			
-			// 使用缓冲区处理消息以提高性能
-			var inbound protocol.InboundEnvelope
-			if len(data) > 8192 {
-				// 对于大消息，直接解析
-				if err := json.Unmarshal(data, &inbound); err != nil {
-					log.Printf("WebSocket: unmarshal large message error: %v", err)
-					continue
-				}
-			} else {
-				// 对于小消息，使用对象池减少GC压力
+		} else {
+			// 对于小消息，使用对象池减少GC压力
 			bufferPtr := messagePool.Get().(*[]byte)
 			buffer := *bufferPtr
 			if len(buffer) < len(data) {
@@ -166,26 +178,22 @@ func (h *Handler) readLoop(ctx context.Context, room *rooms.Room, participant *r
 				continue
 			}
 			messagePool.Put(bufferPtr)
-			}
-			
-			// 根据消息类型处理
-			switch inbound.Kind {
-			case "CONTROL":
-				h.handleControlMessage(room, participant, inbound.Data)
-			case "SYNC_REQUEST":
-				h.handleSyncRequest(room, participant, inbound.Data)
-			default:
-				participant.Send(protocol.Envelope{
-					Kind: "ERROR",
-					Data: protocol.ErrorPayload{
-						Code:    "unknown_kind",
-						Message: "Unsupported message type",
-					},
-				})
-			}
-			
-			// 更新读取超时
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		}
+
+		// 根据消息类型处理
+		switch inbound.Kind {
+		case "CONTROL":
+			h.handleControlMessage(room, participant, inbound.Data)
+		case "SYNC_REQUEST":
+			h.handleSyncRequest(room, participant, inbound.Data)
+		default:
+			participant.Send(protocol.Envelope{
+				Kind: "ERROR",
+				Data: protocol.ErrorPayload{
+					Code:    "unknown_kind",
+					Message: "Unsupported message type",
+				},
+			})
 		}
 	}
 }
@@ -203,19 +211,19 @@ func (h *Handler) handleControlMessage(room *rooms.Room, participant *rooms.Part
 		})
 		return
 	}
-	
+
 	// 解析控制消息
 	var control protocol.ControlMessage
 	if err := json.Unmarshal(data, &control); err != nil {
 		log.Printf("WebSocket: unmarshal control message error: %v", err)
 		return
 	}
-	
+
 	// 设置时间戳
 	if control.Payload.IssuedAt.IsZero() {
 		control.Payload.IssuedAt = time.Now().UTC()
 	}
-	
+
 	// 应用控制命令
 	state, err := room.ApplyControl(participant.ID, control)
 	if err != nil {
@@ -228,7 +236,7 @@ func (h *Handler) handleControlMessage(room *rooms.Room, participant *rooms.Part
 		})
 		return
 	}
-	
+
 	// 广播房间状态更新
 	room.Broadcast(protocol.Envelope{
 		Kind: "ROOM_STATE",
@@ -244,7 +252,7 @@ func (h *Handler) handleSyncRequest(room *rooms.Room, participant *rooms.Partici
 		log.Printf("WebSocket: unmarshal sync request error: %v", err)
 		return
 	}
-	
+
 	// 发送房间状态
 	participant.Send(protocol.Envelope{
 		Kind: "ROOM_STATE",

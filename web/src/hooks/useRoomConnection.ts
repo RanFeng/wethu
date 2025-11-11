@@ -89,20 +89,20 @@ export function useRoomConnection(session: RoomSession) {
         if (!isMounted) return;
         setStatus('closed');
         console.log(`WebSocket disconnected: code=${event.code}, reason=${event.reason}, wasClean=${event.wasClean}`);
-        
+
         // 如果是401错误，显示未授权错误信息
         if (event.code === 1008) {
           setError('连接被拒绝: 未授权访问，请检查token是否有效');
         } else if (event.code !== 1000) {
           setError(`连接意外断开: 错误代码 ${event.code}`);
           // Only attempt to reconnect if it wasn't a clean close and component is still mounted
-          // reconnectTimeout = setTimeout(() => {
-          //   if (isMounted) {
-          //     console.log('Attempting to reconnect...');
-          //     setStatus('connecting');
-          //     connect();
-          //   }
-          // }, 3000);
+          reconnectTimeout = setTimeout(() => {
+            if (isMounted) {
+              console.log('Attempting to reconnect...');
+              setStatus('connecting');
+              connect();
+            }
+          }, 3000);
         }
       };
     };
@@ -110,6 +110,7 @@ export function useRoomConnection(session: RoomSession) {
     connect();
 
     return () => {
+      console.log("ccccccccc")
       isMounted = false;
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
@@ -195,4 +196,3 @@ export function useRoomConnection(session: RoomSession) {
     requestSync
   };
 }
-
